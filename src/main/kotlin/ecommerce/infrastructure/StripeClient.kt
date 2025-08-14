@@ -15,6 +15,10 @@ class StripeClient(
     private val restClient = RestClient.create()
 
     fun createPaymentIntent(req: StripePaymentRequest): StripePaymentIntentResponse {
+        require(req.amount > 0) { "Amount must be positive." }
+        require(req.currency.isNotBlank()) { "Currency must not be blank." }
+        require(req.paymentMethod.isNotBlank()) { "Payment method must not be blank." }
+
         val body =
             listOf(
                 "amount=${req.amount}",
