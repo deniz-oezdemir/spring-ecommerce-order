@@ -83,7 +83,7 @@ class CartItemService(
             CartItem(
                 member = member.toEntity(),
                 product = product,
-                quantity = if (cartItemRequestDTO.quantity == 0) 1 else cartItemRequestDTO.quantity,
+                quantity = cartItemRequestDTO.quantity,
                 addedAt = LocalDateTime.now(),
             ),
         )

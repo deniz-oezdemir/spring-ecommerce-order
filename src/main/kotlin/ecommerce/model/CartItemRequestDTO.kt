@@ -1,10 +1,10 @@
 package ecommerce.model
 
 import ecommerce.util.ValidationMessages
-import jakarta.validation.constraints.PositiveOrZero
+import jakarta.validation.constraints.Positive
 
 class CartItemRequestDTO(
     val productId: Long,
-    @field:PositiveOrZero(message = ValidationMessages.QUANTITY_NON_NEGATIVE)
+    @field:Positive(message = ValidationMessages.QUANTITY_POSITIVE)
     val quantity: Int,
 )
