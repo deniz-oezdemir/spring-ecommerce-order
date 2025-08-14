@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Find the new JAR file in the build directory
-BUILD_PATH=$(ls ./build/libs/*.jar)
+BUILD_PATH=$(ls ./build/libs/*.jar | grep -v 'plain')
 JAR_NAME=$(basename $BUILD_PATH)
 echo "> New JAR file: $JAR_NAME"
 
