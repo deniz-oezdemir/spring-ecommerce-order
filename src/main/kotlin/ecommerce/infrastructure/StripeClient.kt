@@ -16,7 +16,7 @@ class StripeClient(
 ) {
     private val restClient = RestClient.create()
 
-    fun createPaymentIntent(req: StripePaymentRequest): StripePaymentIntentResponse {
+    fun createPaymentIntent(req: StripePaymentRequest): StripePaymentIntentResponse? {
         require(req.amount > 0) { "Amount must be positive." }
         require(req.currency.isNotBlank()) { "Currency must not be blank." }
         require(req.paymentMethod.isNotBlank()) { "Payment method must not be blank." }
@@ -40,7 +40,7 @@ class StripeClient(
                 .retrieve()
                 .toEntity(StripePaymentIntentResponse::class.java)
 
-            return response.body!!
+            return response.body
         } catch (e: RestClientException) {
             val errorBody = if (e is RestClientResponseException) {
                 e.responseBodyAsString
