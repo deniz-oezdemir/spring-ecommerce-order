@@ -28,12 +28,13 @@ class CartItemService(
     ): CartItemResponseDTO {
         validateProductExists(cartItemRequestDTO.productId)
 
-        val cartItem =
-            if (!cartItemRepository.existsByProductIdAndMemberId(cartItemRequestDTO.productId, member.id!!)) {
-                handleCreate(cartItemRequestDTO, member)
-            } else {
-                handleUpdate(cartItemRequestDTO, member)
-            }
+        val existingItem = cartItemRepository.findByProductIdAndMemberId(cartItemRequestDTO.productId, member.id!!)
+
+        val cartItem = if (existingItem == null) {
+            handleCreate(cartItemRequestDTO, member)
+        } else {
+            handleUpdate(existingItem, cartItemRequestDTO)
+        }
 
         return cartItem.toDto()
     }
@@ -89,14 +90,9 @@ class CartItemService(
     }
 
     private fun handleUpdate(
+        existing: CartItem,
         cartItemRequestDTO: CartItemRequestDTO,
-        member: MemberDTO,
     ): CartItem {
-        val existing =
-            cartItemRepository
-                .findByProductIdAndMemberId(cartItemRequestDTO.productId, member.id!!)
-                ?: throw OperationFailedException("Cart item not found")
-
         if (existing.quantity == cartItemRequestDTO.quantity) return existing
 
         existing.updateQuantity(cartItemRequestDTO.quantity)
