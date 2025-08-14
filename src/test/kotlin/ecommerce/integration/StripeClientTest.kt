@@ -87,4 +87,49 @@ class StripeClientTest {
         }
         assertThat(exception.message).isEqualTo("Payment method must not be blank.")
     }
+
+    @Test
+    fun `should throw exception for insufficient funds`() {
+        val request = StripePaymentRequest(
+            amount = 1000,
+            currency = "usd",
+            paymentMethod = "pm_card_visa_chargeDeclined_insufficientFunds"
+        )
+
+        val exception = assertThrows<IllegalArgumentException> {
+            stripeClient.createPaymentIntent(request)
+        }
+
+        assertThat(exception.message).contains("insufficientFunds")
+    }
+
+    @Test
+    fun `should throw exception for a lost card`() {
+        val request = StripePaymentRequest(
+            amount = 1000,
+            currency = "usd",
+            paymentMethod = "pm_card_visa_chargeDeclined_lostCard"
+        )
+
+        val exception = assertThrows<IllegalArgumentException> {
+            stripeClient.createPaymentIntent(request)
+        }
+
+        assertThat(exception.message).contains("lostCard")
+    }
+
+    @Test
+    fun `should throw exception for an incorrect CVC`() {
+        val request = StripePaymentRequest(
+            amount = 1000,
+            currency = "usd",
+            paymentMethod = "pm_card_visa_chargeDeclined_incorrectCvc"
+        )
+
+        val exception = assertThrows<IllegalArgumentException> {
+            stripeClient.createPaymentIntent(request)
+        }
+
+        assertThat(exception.message).contains("incorrectCvc")
+    }
 }

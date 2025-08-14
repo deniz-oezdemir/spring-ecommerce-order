@@ -7,6 +7,8 @@ import org.springframework.http.HttpHeaders
 import org.springframework.http.MediaType
 import org.springframework.stereotype.Component
 import org.springframework.web.client.RestClient
+import org.springframework.web.client.RestClientException
+import org.springframework.web.client.RestClientResponseException
 
 @Component
 class StripeClient(
@@ -30,18 +32,22 @@ class StripeClient(
             ).joinToString("&")
 
         try {
-            val response =
-                restClient.post()
-                    .uri("https://api.stripe.com/v1/payment_intents")
-                    .header(HttpHeaders.AUTHORIZATION, "Bearer ${stripeProperties.secretKey}")
-                    .contentType(MediaType.APPLICATION_FORM_URLENCODED)
-                    .body(body)
-                    .retrieve()
-                    .toEntity(StripePaymentIntentResponse::class.java)
+            val response = restClient.post()
+                .uri("https://api.stripe.com/v1/payment_intents")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer ${stripeProperties.secretKey}")
+                .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                .body(body)
+                .retrieve()
+                .toEntity(StripePaymentIntentResponse::class.java)
 
             return response.body!!
-        } catch (e: Exception) {
-            throw IllegalArgumentException("Stripe API error: ${e.message}")
+        } catch (e: RestClientException) {
+            val errorBody = if (e is RestClientResponseException) {
+                e.responseBodyAsString
+            } else {
+                e.message
+            }
+            throw IllegalArgumentException("Stripe API error: $errorBody")
         }
     }
 }
