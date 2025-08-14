@@ -2,6 +2,7 @@ package ecommerce.mappers
 
 import ecommerce.entities.Order
 import ecommerce.entities.OrderItem
+import ecommerce.entities.Payment
 import ecommerce.model.OrderItemDTO
 import ecommerce.model.OrderResponseDTO
 
@@ -18,7 +19,7 @@ fun Order.toDTO(): OrderResponseDTO =
         orderId = this.id!!,
         orderDate = this.orderDate,
         orderStatus = this.status,
-        totalAmount = this.payment.amount / 100.0,
+        totalAmount = this.payment.amount / Payment.CENTS_PER_EUR,
         stripePaymentId = this.payment.stripePaymentId,
         items = this.items.map { it.toDTO() },
     )

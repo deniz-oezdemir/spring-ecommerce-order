@@ -17,4 +17,8 @@ class Payment(
     val amount: Long,
     @Column(nullable = false)
     val stripePaymentId: String,
-)
+) {
+    companion object {
+        const val CENTS_PER_EUR = 100.0
+    }
+}
