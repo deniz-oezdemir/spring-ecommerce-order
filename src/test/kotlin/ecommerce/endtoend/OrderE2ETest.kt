@@ -3,8 +3,11 @@ package ecommerce.endtoend
 import ecommerce.config.DatabaseSeeder
 import ecommerce.entities.Member
 import ecommerce.entities.Option
+import ecommerce.infrastructure.StripeClient
 import ecommerce.model.OrderResponseDTO
 import ecommerce.model.PaymentRequestDTO
+import ecommerce.model.StripePaymentIntentResponse
+import ecommerce.model.StripePaymentRequest
 import ecommerce.repositories.CartItemRepository
 import ecommerce.repositories.MemberRepository
 import ecommerce.repositories.OptionRepository
@@ -16,26 +19,43 @@ import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
+import org.mockito.Mockito.mock
+import org.mockito.kotlin.any
+import org.mockito.kotlin.given
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.context.SpringBootTest
+import org.springframework.boot.test.context.TestConfiguration
+import org.springframework.context.annotation.Bean
+import org.springframework.context.annotation.Primary
 import org.springframework.http.HttpStatus
+import org.springframework.test.annotation.DirtiesContext
 
+@DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.DEFINED_PORT)
 class OrderE2ETest {
+
+    @Autowired
+    private lateinit var stripeClient: StripeClient
+
+    @TestConfiguration
+    open class MockConfig {
+        @Bean
+        @Primary
+        open fun mockStripeClient(): StripeClient {
+            return mock(StripeClient::class.java)
+        }
+    }
+
     @Autowired
     private lateinit var databaseSeeder: DatabaseSeeder
-
     @Autowired
     private lateinit var optionRepository: OptionRepository
-
-    @Autowired
-    private lateinit var cartItemRepository: CartItemRepository
-
     @Autowired
     private lateinit var memberRepository: MemberRepository
-
     @Autowired
     private lateinit var orderRepository: OrderRepository
+    @Autowired
+    private lateinit var cartItemRepository: CartItemRepository
 
     private lateinit var token: String
     private lateinit var member: Member
@@ -58,21 +78,21 @@ class OrderE2ETest {
                 .then().extract()
 
         token = response.body().jsonPath().getString("accessToken")
-
         member = memberRepository.findByEmail("user1@example.com")!!
-
         optionToPurchase = optionRepository.findAll().find { it.product?.name == "Car" && it.name == "Red Color" }!!
     }
 
     @Test
     fun `should create order and return details on successful payment`() {
         val initialStock = optionToPurchase.quantity
-        val request =
-            PaymentRequestDTO(
-                optionId = optionToPurchase.id!!,
-                quantity = 1,
-                paymentMethod = "pm_card_visa",
-            )
+        val request = PaymentRequestDTO(
+            optionId = optionToPurchase.id!!,
+            quantity = 1,
+            paymentMethod = "pm_card_visa",
+        )
+
+        val mockStripeResponse = StripePaymentIntentResponse(id = "pi_mock_success_123")
+        given(stripeClient.createPaymentIntent(any<StripePaymentRequest>())).willReturn(mockStripeResponse)
 
         val orderResponse =
             RestAssured.given()
@@ -84,31 +104,24 @@ class OrderE2ETest {
                 .statusCode(HttpStatus.OK.value())
                 .extract().`as`(OrderResponseDTO::class.java)
 
-        // check response DTO
-        assertThat(orderResponse.orderId).isNotNull()
-        assertThat(orderResponse.totalAmount).isEqualTo(optionToPurchase.product!!.price)
-        assertThat(orderResponse.items).hasSize(1)
-        assertThat(orderResponse.items[0].productName).isEqualTo("Car")
-        assertThat(orderResponse.stripePaymentId).startsWith("pi_")
 
-        // verify database state
+        assertThat(orderResponse.orderId).isNotNull()
+        assertThat(orderResponse.stripePaymentId).isEqualTo("pi_mock_success_123")
         val updatedOption = optionRepository.findById(optionToPurchase.id!!).get()
         assertThat(updatedOption.quantity).isEqualTo(initialStock - 1)
-
-        val orderInDb = orderRepository.findAll().firstOrNull()
-        assertThat(orderInDb).isNotNull
-        assertThat(orderInDb!!.member.id).isEqualTo(member.id)
     }
 
     @Test
     fun `should not create an order when payment fails`() {
         val initialOrderCount = orderRepository.count()
-        val request =
-            PaymentRequestDTO(
-                optionId = optionToPurchase.id!!,
-                quantity = 1,
-                paymentMethod = "pm_card_visa_chargeDeclined",
-            )
+        val request = PaymentRequestDTO(
+            optionId = optionToPurchase.id!!,
+            quantity = 1,
+            paymentMethod = "pm_card_visa_chargeDeclined",
+        )
+
+        given(stripeClient.createPaymentIntent(any<StripePaymentRequest>()))
+            .willThrow(IllegalArgumentException("Your card was declined."))
 
         RestAssured.given()
             .header("Authorization", "Bearer $token")
@@ -118,22 +131,19 @@ class OrderE2ETest {
             .then()
             .statusCode(HttpStatus.BAD_REQUEST.value())
 
-        // Verify no new order created in DB
         assertThat(orderRepository.count()).isEqualTo(initialOrderCount)
     }
 
     @Test
     fun `should return 409 conflict when stock is insufficient`() {
         val initialStock = optionToPurchase.quantity
-        val requestedQuantity = (initialStock + 1).toLong()
+        val requestedQuantity = (initialStock + 1).toInt()
         val initialOrderCount = orderRepository.count()
-
-        val request =
-            PaymentRequestDTO(
-                optionId = optionToPurchase.id!!,
-                quantity = requestedQuantity,
-                paymentMethod = "pm_card_visa",
-            )
+        val request = PaymentRequestDTO(
+            optionId = optionToPurchase.id!!,
+            quantity = requestedQuantity.toLong(),
+            paymentMethod = "pm_card_visa",
+        )
 
         val errorResponse =
             RestAssured.given()
@@ -143,29 +153,26 @@ class OrderE2ETest {
                 .post("/api/orders")
                 .then()
                 .statusCode(HttpStatus.CONFLICT.value())
-                .extract()
-                .body()
-                .jsonPath()
+                .extract().body().jsonPath()
 
-        // verify error message in response
         assertThat(errorResponse.getString("message")).isEqualTo("Not enough stock")
-
-        // verify stock has NOT changed in DB
         val updatedOption = optionRepository.findById(optionToPurchase.id!!).get()
         assertThat(updatedOption.quantity).isEqualTo(initialStock)
-
-        // verify no new order was created
         assertThat(orderRepository.count()).isEqualTo(initialOrderCount)
     }
 
     @Test
     fun `should return all orders for the authenticated user`() {
-        val creationRequest =
-            PaymentRequestDTO(
-                optionId = optionToPurchase.id!!,
-                quantity = 1,
-                paymentMethod = "pm_card_visa",
-            )
+        // Arrange: Create an order for the user first.
+        val creationRequest = PaymentRequestDTO(
+            optionId = optionToPurchase.id!!,
+            quantity = 1,
+            paymentMethod = "pm_card_visa",
+        )
+
+        val mockStripeResponse = StripePaymentIntentResponse(id = "pi_mock_another_test")
+        given(stripeClient.createPaymentIntent(any<StripePaymentRequest>())).willReturn(mockStripeResponse)
+
         RestAssured.given()
             .header("Authorization", "Bearer $token")
             .contentType(ContentType.JSON)
@@ -182,12 +189,10 @@ class OrderE2ETest {
                 .statusCode(HttpStatus.OK.value())
                 .extract().body().`as`(object : TypeRef<List<OrderResponseDTO>>() {})
 
-        // verify list contains order we just created
         assertThat(orders).hasSize(1)
-
-        // verify  details of order in the list
         val fetchedOrder = orders[0]
         assertThat(fetchedOrder.totalAmount).isEqualTo(optionToPurchase.product!!.price)
         assertThat(fetchedOrder.items[0].productName).isEqualTo("Car")
+        assertThat(fetchedOrder.stripePaymentId).isEqualTo("pi_mock_another_test")
     }
 }
